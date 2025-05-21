@@ -90,9 +90,28 @@ def parse_excel_checklist(uploaded_file):
         else:
             checklist_data['owner'] = "Unassigned"
             
-        # Add due date column (create if not exists)
+        # Add due date column (create if not exists) with robust date handling
         if due_date_col in df.columns:
-            checklist_data['due_date'] = df[due_date_col]
+            # Handle date conversion safely
+            due_dates = []
+            for date_val in df[due_date_col]:
+                if pd.isna(date_val):
+                    # Use a default date for missing values
+                    due_dates.append(pd.Timestamp.now() + pd.Timedelta(days=14))
+                else:
+                    try:
+                        # Try to convert to datetime, with various approaches
+                        if isinstance(date_val, (int, float)):
+                            # Handle Excel's numeric date format
+                            due_dates.append(pd.to_datetime('1899-12-30') + pd.Timedelta(days=int(date_val)))
+                        else:
+                            # Try normal parsing
+                            due_dates.append(pd.to_datetime(date_val, errors='coerce'))
+                    except:
+                        # If all else fails, use a default date
+                        due_dates.append(pd.Timestamp.now() + pd.Timedelta(days=14))
+            
+            checklist_data['due_date'] = due_dates
         else:
             # Set default due date to 2 weeks from now
             checklist_data['due_date'] = pd.Timestamp.now() + pd.Timedelta(days=14)
@@ -573,10 +592,10 @@ def main():
                                     index=["Low", "Medium", "High", "Critical"].index(row['priority']) if row['priority'] in ["Low", "Medium", "High", "Critical"] else 1
                                 )
                                 
-                                # Due date
+                            # Due date
                                 new_due_date = st.date_input(
                                     "Due Date",
-                                    pd.to_datetime(row['due_date']).date() if pd.notna(row['due_date']) else datetime.now().date() + timedelta(days=14)
+                                    value=pd.to_datetime(row['due_date']).date() if pd.notna(row['due_date']) and isinstance(row['due_date'], pd.Timestamp) else datetime.now().date() + timedelta(days=14)
                                 )
                                 
                                 # Notes
@@ -853,7 +872,9 @@ def main():
                     upcoming_df = upcoming_df[upcoming_df['due_date'].notna()]
                     
                     # Add days_until_due column
-                    upcoming_df['days_until_due'] = (upcoming_df['due_date'].dt.date - current_date).dt.days
+                    upcoming_df['days_until_due'] = upcoming_df['due_date'].apply(
+                        lambda x: (x.date() - current_date).days if isinstance(x, pd.Timestamp) else 0
+                    )
                     
                     # Filter for incomplete items only
                     upcoming_df = upcoming_df[~upcoming_df['status'].str.contains('Complete', case=False)]
@@ -961,15 +982,13 @@ def main():
                     current_date = pd.Timestamp.now().date()
                     upcoming_df = st.session_state.checklist_data.copy()
                     
-                    # Convert due_date to datetime if it's not already
-                    if upcoming_df['due_date'].dtype != 'datetime64[ns]':
-                        upcoming_df['due_date'] = pd.to_datetime(upcoming_df['due_date'])
-                    
-                    # Filter out items without due dates
+                    # Ensure due_date is properly formatted
                     upcoming_df = upcoming_df[upcoming_df['due_date'].notna()]
                     
-                    # Add days_until_due column
-                    upcoming_df['days_until_due'] = (upcoming_df['due_date'].dt.date - current_date).dt.days
+                    # Safely calculate days until due
+                    upcoming_df['days_until_due'] = upcoming_df['due_date'].apply(
+                        lambda x: (x.date() - current_date).days if isinstance(x, pd.Timestamp) else 0
+                    )
                     
                     # Filter for incomplete items only
                     upcoming_df = upcoming_df[~upcoming_df['status'].str.contains('Complete', case=False)]
