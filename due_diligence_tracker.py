@@ -13,9 +13,7 @@ import json
 import uuid
 import re
 import time
-import hashlib
 import hmac
-import base64
 
 # Set page configuration
 st.set_page_config(
