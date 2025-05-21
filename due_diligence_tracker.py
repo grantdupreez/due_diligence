@@ -13,6 +13,9 @@ import json
 import uuid
 import re
 import time
+import hashlib
+import hmac
+import base64
 
 # Set page configuration
 st.set_page_config(
@@ -21,6 +24,53 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Authentication helper functions
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    
+    def login_form():
+        """Form for entering username and password"""
+        with st.form("Authentication"):
+            st.subheader("Login")
+            username = st.text_input("Username", key="username_input")
+            password = st.text_input("Password", type="password", key="password_input")
+            submit = st.form_submit_button("Login")
+            
+        if submit:
+            # Get the stored password hash from st.secrets
+            if username in st.secrets['passwords']:
+                stored_password = st.secrets['passwords'][username]
+                
+                # Generate hmac for the provided password
+                password_hmac = hmac.new(
+                    key=username.encode(),
+                    msg=password.encode(),
+                    digestmod=hashlib.sha256
+                ).hexdigest()
+                
+                # Compare the stored password with the provided password
+                if hmac.compare_digest(password_hmac, stored_password):
+                    st.session_state['authentication_status'] = True
+                    st.session_state['username'] = username
+                    return True
+                else:
+                    st.error("Incorrect username or password")
+                    return False
+            else:
+                st.error("Incorrect username or password")
+                return False
+        else:
+            return False
+    
+    # Initialize session state for authentication
+    if 'authentication_status' not in st.session_state:
+        st.session_state['authentication_status'] = False
+        
+    if st.session_state['authentication_status']:
+        return True
+    else:
+        return login_form()
 
 # Initialize session state variables if they don't exist
 if 'checklist_data' not in st.session_state:
@@ -38,7 +88,8 @@ if 'last_analyzed' not in st.session_state:
 
 # Function to initialize Anthropic client
 def init_claude_client():
-    api_key = st.session_state.get('anthropic_api_key', '')
+    # Get API key from secrets instead of session state
+    api_key = st.secrets.get('ANTHROPIC_API_KEY', '')
     if api_key:
         return anthropic.Anthropic(api_key=api_key)
     return None
@@ -279,21 +330,24 @@ def get_claude_recommendations(client, checklist_item):
 
 # Main Streamlit app layout
 def main():
+    # Authentication check
+    if not check_password():
+        return
+        
     # Sidebar with settings and project selection
     with st.sidebar:
-        st.image("https://via.placeholder.com/150x60?text=DueDiligence", width=150)
+        # Use text instead of image for branding
+        st.markdown("## IgnitionTransformation")
         st.title("Project Settings")
         
-        # Claude API settings
+        # Claude API integration notice
         st.subheader("Claude AI Integration")
-        api_key = st.text_input("Claude API Key", value=st.session_state.get('anthropic_api_key', ''), type="password")
-        if api_key:
-            st.session_state.anthropic_api_key = api_key
+        if st.secrets.get('ANTHROPIC_API_KEY'):
             client = init_claude_client()
             if client:
                 st.success("Claude API connected", icon="✅")
         else:
-            st.info("Enter Claude API key to enable AI insights")
+            st.error("Claude API key not found in secrets")
             client = None
         
         st.divider()
